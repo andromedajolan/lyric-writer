@@ -29,7 +29,7 @@ export function uid(prefix = 's') {
 }
 
 export function newSection(type = 'Verse', lyrics = '') {
-  return { id: uid('sec'), type, label: '', tags: null, fade: false, lyrics };
+  return { id: uid('sec'), type, label: '', tags: [], fade: false, lyrics };
 }
 
 export function newSong(overrides = {}) {
@@ -45,7 +45,7 @@ export function newSong(overrides = {}) {
     release: { type: 'none', name: '' },
     sections: [newSection('Verse')],
     notes: { meaning: '', performance: '' },
-    suno: { style: '', exclude: '', weirdness: null, styleInfluence: null, audioInfluence: null, audioUploaded: false },
+    suno: { style: '', exclude: '', voice: '', weirdness: null, styleInfluence: null, audioInfluence: null, audioUploaded: false },
     created: now,
     updated: now,
     deleted: false,
@@ -78,6 +78,7 @@ export function normalizeSong(raw) {
   s.suno = {
     style: String(su.style ?? ''),
     exclude: String(su.exclude ?? ''),
+    voice: String(su.voice ?? ''),
     weirdness: pct(su.weirdness),
     styleInfluence: pct(su.styleInfluence),
     audioInfluence: pct(su.audioInfluence),
@@ -102,12 +103,14 @@ function pct(v) {
 
 function normalizeSection(raw) {
   const r = raw || {};
+  // tags is always an array. v0.2.0 files may have null (meant "use defaults"); defaults no longer exist, so null reads as none.
   let tags = Array.isArray(r.tags) ? r.tags.map(cleanTag).filter(Boolean) : null;
   // v0.1 stored one free-text "sunoTag"; fold its bracketed tags into the new list (headers dropped).
   if (tags === null && typeof r.sunoTag === 'string' && r.sunoTag.trim()) {
     const found = [...r.sunoTag.matchAll(/\[([^\]]+)\]/g)].map((x) => cleanTag(x[1])).filter((t) => t && !HEADER_WORDS.test(t));
     if (found.length) tags = found;
   }
+  if (tags === null) tags = [];
   return {
     id: String(r.id || uid('sec')),
     type: SECTION_TYPES.includes(r.type) ? r.type : 'Other',

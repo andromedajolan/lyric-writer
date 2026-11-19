@@ -1,44 +1,57 @@
-// Suno helpers: tag settings, clean/tagged lyric builders, style-line key/BPM sync. Pure except settings storage.
+// Suno helpers: tag parsing and warnings, clean/tagged lyric builders, style-line key/BPM sync, voices list.
 import { isChord } from './chords.js';
 
-const SETTINGS_KEY = 'lyricwriter.suno';
-
-export const DEFAULT_SETTINGS = {
-  glossary: ['piano', 'pianissimo', 'forte', 'legato', 'crescendo', 'diminuendo', 'sparse'],
-  defaults: {
-    Verse: ['piano', 'legato', 'sparse'],
-    'Pre-Chorus': ['crescendo', 'legato'],
-    Chorus: ['forte', 'legato'],
-    Bridge: ['pianissimo', 'sparse'],
-  },
-};
-
+export const LIMITS = { style: 1000, lyrics: 5000 };
 export const FADE_TAG = 'diminuendo';
+
+const VOICES_KEY = 'lyricwriter.voices';
+export const DEFAULT_VOICES = ['Andromeda Dunn', 'May 12'];
 
 export function cleanTag(t) {
   return String(t ?? '').replace(/[\[\]\n]/g, '').trim();
 }
 
-export function loadSettings() {
-  const base = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-  try {
-    const raw = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
-    if (raw && Array.isArray(raw.glossary)) base.glossary = raw.glossary.map(cleanTag).filter(Boolean);
-    if (raw && raw.defaults && typeof raw.defaults === 'object') {
-      base.defaults = {};
-      for (const [k, v] of Object.entries(raw.defaults)) if (Array.isArray(v)) base.defaults[k] = v.map(cleanTag).filter(Boolean);
+// "[mp][driving]" or "mp, driving" or "mp" -> ['mp','driving']
+export function parseTagInput(raw) {
+  const s = String(raw ?? '');
+  const bracketed = [...s.matchAll(/\[([^\[\]]+)\]/g)].map((m) => cleanTag(m[1]));
+  const parts = bracketed.length ? bracketed : s.split(/[,\n]+/).map(cleanTag);
+  const seen = new Set();
+  return parts.filter((t) => { const k = t.toLowerCase(); if (!t || seen.has(k)) return false; seen.add(k); return true; });
+}
+
+// Tags used across songs, most used first (for suggestions).
+export function usedTags(songs) {
+  const counts = new Map();
+  for (const song of songs) {
+    for (const sec of song.sections) {
+      for (const t of sec.tags || []) {
+        const key = t.toLowerCase();
+        const cur = counts.get(key) || { tag: t, n: 0 };
+        cur.n++;
+        counts.set(key, cur);
+      }
     }
-  } catch { /* use defaults */ }
-  return base;
+  }
+  return [...counts.values()].sort((a, b) => b.n - a.n || a.tag.localeCompare(b.tag)).map((x) => x.tag);
 }
 
-export function saveSettings(settings) {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* ignore */ }
-}
+// Suno tends to play an instrument named in a tag instead of changing the dynamics.
+const INSTRUMENT_RE = /\b(pianos?|keys|keyboards?|guitars?|bass|drums?|strings?|violins?|cellos?|violas?|synth(?:esizer)?s?|organs?|brass|horns?|trumpets?|trombones?|sax(?:ophones?)?|flutes?|clarinets?|ukuleles?|banjos?|mandolins?|harps?|harmonica|accordion|orchestra|percussion)\b/i;
+export const isInstrumentTag = (tag) => INSTRUMENT_RE.test(String(tag));
+export const instrumentWarning = (tag) =>
+  `[${tag}] is an instrument name. Suno may play the instrument instead of changing the dynamics. For quiet, try [mp] or [soft].`;
+export const instrumentTagsIn = (song) => [...new Set(song.sections.flatMap((s) => (s.tags || []).filter(isInstrumentTag)))];
 
-// null tags = use the default for the section type; an array (even empty) = this section's own tags.
-export function effectiveTags(sec, settings) {
-  return sec.tags ?? settings.defaults[sec.type] ?? [];
+export function loadVoices() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VOICES_KEY) || 'null');
+    if (Array.isArray(raw)) return raw.map((v) => String(v).trim()).filter(Boolean);
+  } catch { /* defaults */ }
+  return [...DEFAULT_VOICES];
+}
+export function saveVoices(list) {
+  try { localStorage.setItem(VOICES_KEY, JSON.stringify(list)); } catch { /* ignore */ }
 }
 
 // Remove chord brackets, keep other bracketed words. Lines that were only chords disappear.
@@ -64,7 +77,7 @@ export function cleanLyrics(song) {
   return song.sections.map((s) => stripChords(s.lyrics)).filter(Boolean).join('\n\n');
 }
 
-export function taggedLyrics(song, settings) {
+export function taggedLyrics(song) {
   const blocks = [];
   let verse = 0;
   for (const sec of song.sections) {
@@ -72,7 +85,7 @@ export function taggedLyrics(song, settings) {
     const body = stripChords(sec.lyrics);
     if (!body) continue;
     const lines = [`[${sunoHeader(sec, verse)}]`];
-    const tags = effectiveTags(sec, settings);
+    const tags = sec.tags || [];
     if (tags.length) lines.push(tags.map((t) => `[${t}]`).join(''));
     const bodyLines = body.split('\n');
     if (sec.fade) {
@@ -86,6 +99,7 @@ export function taggedLyrics(song, settings) {
 }
 
 export const oneLine = (s) => String(s ?? '').replace(/\s*\n\s*/g, ' ').trim();
+export const fmtCount = (n) => n.toLocaleString('en-US');
 
 const KEY_TOKEN = /^([A-G][#b]?)\s+(major|minor|dorian|phrygian|lydian|mixolydian|locrian)$/i;
 const BPM_TOKEN = /^\d+(\.\d+)?\s*BPM$/i;

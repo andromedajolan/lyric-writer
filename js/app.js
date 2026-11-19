@@ -9,9 +9,11 @@ import {
 } from './chords.js';
 import { renderChart, closeChordPopover } from './chart.js';
 import { buildSunoPanel } from './sunotab.js';
-import { loadSettings, saveSettings, effectiveTags, syncStyle, cleanTag } from './suno.js';
+import {
+  syncStyle, taggedLyrics, parseTagInput, usedTags, isInstrumentTag, instrumentWarning, LIMITS, fmtCount,
+} from './suno.js';
 
-const APP_VERSION = '0.2.0'; // keep in sync with sw.js
+const APP_VERSION = '0.3.1'; // keep in sync with sw.js
 const PENDING_KEY = 'lyricwriter.pending';
 const LAST_KEY = 'lyricwriter.last';
 const GROUP_KEY = 'lyricwriter.groupBy';
@@ -28,7 +30,6 @@ const state = {
   groupBy: 'release',
   view: 'edit', // lyrics tab: 'edit' (plain text with [C] brackets) or 'chart' (chips over words)
 };
-const sunoSettings = loadSettings();
 
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* quota/private mode */ } };
@@ -173,10 +174,10 @@ function renderLibrary() {
 
 function isBlank(s) {
   return !s.title.trim() && !s.key && !s.mode && !s.bpm && s.release.type === 'none'
-    && !s.notes.meaning && !s.notes.performance && !s.suno.style && !s.suno.exclude
+    && !s.notes.meaning && !s.notes.performance && !s.suno.style && !s.suno.exclude && !s.suno.voice
     && s.suno.weirdness == null && s.suno.styleInfluence == null && s.suno.audioInfluence == null
     && s.sections.length <= 1
-    && s.sections.every((x) => !x.lyrics && !x.label && !x.tags && !x.fade);
+    && s.sections.every((x) => !x.lyrics && !x.label && !x.tags.length && !x.fade);
 }
 
 async function discardIfBlank(id) {
@@ -401,6 +402,13 @@ async function doTranspose({ steps = 0, toKey = '' }) {
 
 function lyricsTab(song) {
   const wrap = h('div', {});
+  const count = h('span', { class: 'tb-count', title: 'Length of the tagged lyrics you would paste into Suno' });
+  const updateCount = () => {
+    const n = taggedLyrics(song).length;
+    count.textContent = `Suno lyrics ${fmtCount(n)} / ${fmtCount(LIMITS.lyrics)}`;
+    count.classList.toggle('over', n > LIMITS.lyrics);
+  };
+  const tc = () => { touch(song); updateCount(); };
   const list = h('div', {});
   const addBar = h('div', { class: 'add-bar' });
 
@@ -419,7 +427,8 @@ function lyricsTab(song) {
     h('div', { class: 'tb-group' }, h('span', { class: 'tb-label' }, 'Transpose'),
       h('button', { class: 'btn small', 'aria-label': 'Down one semitone', title: 'Down one semitone', onclick: () => doTranspose({ steps: -1 }) }, '−1'),
       h('button', { class: 'btn small', 'aria-label': 'Up one semitone', title: 'Up one semitone', onclick: () => doTranspose({ steps: 1 }) }, '+1'),
-      toKey));
+      toKey),
+    count);
   const syncToolbar = () => {
     viewEdit.setAttribute('aria-pressed', String(state.view === 'edit'));
     viewChart.setAttribute('aria-pressed', String(state.view === 'chart'));
@@ -441,7 +450,7 @@ function lyricsTab(song) {
   const addSection = (type) => {
     const sec = newSection(type);
     song.sections.push(sec);
-    touch(song);
+    tc();
     renderSections();
     const card = list.querySelector(`[data-id="${sec.id}"]`);
     card?.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -452,48 +461,70 @@ function lyricsTab(song) {
     if (state.view === 'chart') {
       return renderChart(sec.lyrics, {
         key: song.key, mode: song.mode,
-        onChange: (text) => { sec.lyrics = text; touch(song); refreshLibrarySoon(); renderSections(); },
+        onChange: (text) => { sec.lyrics = text; tc(); refreshLibrarySoon(); renderSections(); },
       });
     }
     const ta = h('textarea', {
       class: 'lyrics', value: sec.lyrics, placeholder: 'Write lyrics here. Add chords like [C]word', 'aria-label': 'Lyrics',
-      oninput: (e) => { sec.lyrics = e.target.value; autosize(e.target); touch(song); refreshLibrarySoon(); },
+      oninput: (e) => { sec.lyrics = e.target.value; autosize(e.target); tc(); refreshLibrarySoon(); },
     });
     ta.spellcheck = false;
     return ta;
   }
 
   function sectionCard(sec) {
-    // Tags: summary line always visible, panel on click.
+    // Tags: summary line always visible, panel on click. Sections start with no tags.
     const tagSum = h('button', { class: 'tagsum', title: 'Edit Suno tags for this section' });
     const panel = h('div', { class: 'tagpanel', hidden: true });
     const refreshSum = () => {
-      const t = effectiveTags(sec, sunoSettings);
-      tagSum.textContent = (t.length ? t.map((x) => `[${x}]`).join('') : 'no tags') + (sec.tags ? ' · custom' : ' · default') + (sec.fade ? ' · fade' : '');
+      const warn = sec.tags.some(isInstrumentTag);
+      tagSum.textContent = (sec.tags.length ? sec.tags.map((x) => `[${x}]`).join('') : 'no tags') + (sec.fade ? ' · fade' : '') + (warn ? ' · ⚠ instrument tag' : '');
+      tagSum.classList.toggle('warn', warn);
     };
-    const setTags = (arr) => { sec.tags = arr; touch(song); refreshSum(); renderPanel(); };
+    const setTags = (arr) => { sec.tags = arr; tc(); refreshSum(); renderPanel(); };
     function renderPanel() {
-      const cur = effectiveTags(sec, sunoSettings);
-      const names = [...sunoSettings.glossary, ...cur.filter((t) => !sunoSettings.glossary.includes(t))];
-      const input = h('input', { placeholder: 'Add your own tag', 'aria-label': 'Add tag to this section', autocomplete: 'off' });
-      const add = () => {
-        const t = cleanTag(input.value); if (!t) return;
-        if (!sunoSettings.glossary.includes(t)) { sunoSettings.glossary.push(t); saveSettings(sunoSettings); }
-        setTags(cur.includes(t) ? cur : [...cur, t]);
+      const tags = sec.tags;
+      const dlId = uid('dl');
+      const suggestions = usedTags([...state.songs.values()].filter((s) => !s.deleted)).filter((t) => !tags.some((x) => x.toLowerCase() === t.toLowerCase()));
+      const bad = tags.filter(isInstrumentTag);
+      const input = h('input', { list: dlId, placeholder: 'Add a tag, e.g. mezzo-forte', 'aria-label': 'Add tag to this section', autocomplete: 'off' });
+      const add = (raw) => {
+        const found = parseTagInput(raw);
+        if (!found.length) return;
+        const next = [...tags];
+        for (const t of found) if (!next.some((x) => x.toLowerCase() === t.toLowerCase())) next.push(t);
+        setTags(next);
         panel.querySelector('input')?.focus();
       };
-      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(input.value); } });
+      const copyToOthers = () => {
+        const others = song.sections.filter((s) => s !== sec && s.type === sec.type);
+        if (!others.length) { toast(`No other ${sec.type} sections in this song.`, { ms: 3000 }); return; }
+        const prev = others.map((o) => [o, o.tags]);
+        others.forEach((o) => { o.tags = [...sec.tags]; });
+        tc(); renderSections();
+        toast(`Copied these tags to ${others.length} other ${sec.type} section${others.length === 1 ? '' : 's'}.`, {
+          action: 'Undo', ms: 10000,
+          onAction: () => { if (state.currentId === song.id) { prev.forEach(([o, t]) => { o.tags = t; }); tc(); renderSections(); } },
+        });
+      };
       panel.replaceChildren(
-        h('div', { class: 'chips' }, names.map((t) => h('button', {
-          class: 'chip', 'aria-pressed': String(cur.includes(t)),
-          onclick: () => setTags(cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t]),
-        }, t))),
-        h('div', { class: 'add-tag' }, input, h('button', { class: 'btn small', onclick: add }, 'Add')),
+        tags.length ? h('div', { class: 'chips' }, tags.map((t) => h('button', {
+          class: 'chip' + (isInstrumentTag(t) ? ' warn' : ''), 'aria-pressed': 'true', title: 'Click to remove',
+          onclick: () => setTags(tags.filter((x) => x !== t)),
+        }, t + (isInstrumentTag(t) ? ' ⚠' : '')))) : null,
+        h('div', { class: 'add-tag' }, input, h('datalist', { id: dlId }, suggestions.map((t) => h('option', { value: t }))),
+          h('button', { class: 'btn small', onclick: () => add(input.value) }, 'Add')),
+        suggestions.length ? h('div', { class: 'chips suggest' }, h('span', { class: 'tb-label' }, 'From your songs'),
+          suggestions.slice(0, 16).map((t) => h('button', { class: 'chip', 'aria-pressed': 'false', onclick: () => add(t) }, t))) : null,
+        bad.length ? h('div', { class: 'tag-warn', role: 'alert' }, instrumentWarning(bad[0])) : null,
         h('div', { class: 'tag-opts' },
           h('label', { class: 'check' },
-            h('input', { type: 'checkbox', checked: sec.fade, onchange: (e) => { sec.fade = e.target.checked; touch(song); refreshSum(); } }),
+            h('input', { type: 'checkbox', checked: sec.fade, onchange: (e) => { sec.fade = e.target.checked; tc(); refreshSum(); } }),
             'Fade on last line ([diminuendo] before it)'),
-          h('button', { class: 'btn small ghost', disabled: sec.tags === null, onclick: () => setTags(null) }, 'Use defaults')));
+          h('div', { class: 'tb-group' },
+            h('button', { class: 'btn small', onclick: copyToOthers, title: 'Give every other section of this type these same tags' }, `Copy tags to other ${sec.type} sections`),
+            h('button', { class: 'btn small ghost', disabled: !tags.length, onclick: () => setTags([]) }, 'Clear'))));
     }
     tagSum.addEventListener('click', () => { panel.hidden = !panel.hidden; if (!panel.hidden) renderPanel(); });
     refreshSum();
@@ -503,15 +534,15 @@ function lyricsTab(song) {
       const j = k + d;
       if (j < 0 || j >= song.sections.length) return;
       [song.sections[k], song.sections[j]] = [song.sections[j], song.sections[k]];
-      touch(song); renderSections();
+      tc(); renderSections();
       list.querySelector(`[data-id="${sec.id}"] [data-act="${d < 0 ? 'up' : 'down'}"]`)?.focus();
     };
     return h('div', { class: 'sec', dataset: { id: sec.id } },
       h('div', { class: 'sec-head' },
-        select(SECTION_TYPES, sec.type, (v) => { sec.type = v; touch(song); updateLabels(); refreshSum(); }),
+        select(SECTION_TYPES, sec.type, (v) => { sec.type = v; tc(); updateLabels(); refreshSum(); if (!panel.hidden) renderPanel(); }),
         h('input', {
           class: 'label-in', value: sec.label, 'aria-label': 'Section name (optional)',
-          oninput: (e) => { sec.label = e.target.value; touch(song); },
+          oninput: (e) => { sec.label = e.target.value; tc(); },
         }),
         h('div', { class: 'sec-tools' },
           h('button', { class: 'btn small ghost', dataset: { act: 'up' }, 'aria-label': 'Move section up', title: 'Move up', onclick: () => move(-1) }, '↑'),
@@ -520,8 +551,8 @@ function lyricsTab(song) {
             class: 'btn small ghost', 'aria-label': 'Duplicate section', title: 'Duplicate',
             onclick: () => {
               const idx = song.sections.findIndex((x) => x.id === sec.id);
-              song.sections.splice(idx + 1, 0, { ...sec, id: uid('sec'), tags: sec.tags ? [...sec.tags] : null });
-              touch(song); renderSections();
+              song.sections.splice(idx + 1, 0, { ...sec, id: uid('sec'), tags: [...sec.tags] });
+              tc(); renderSections();
             },
           }, '⧉'),
           h('button', {
@@ -529,10 +560,10 @@ function lyricsTab(song) {
             onclick: () => {
               const idx = song.sections.findIndex((x) => x.id === sec.id);
               const [removed] = song.sections.splice(idx, 1);
-              touch(song); renderSections();
+              tc(); renderSections();
               toast('Section deleted.', {
                 action: 'Undo', ms: 10000,
-                onAction: () => { if (cur() === song) { song.sections.splice(Math.min(idx, song.sections.length), 0, removed); touch(song); renderSections(); } },
+                onAction: () => { if (cur() === song) { song.sections.splice(Math.min(idx, song.sections.length), 0, removed); tc(); renderSections(); } },
               });
             },
           }, '✕'))),
@@ -550,6 +581,7 @@ function lyricsTab(song) {
 
   wrap.append(toolbar, list, addBar);
   renderSections();
+  updateCount();
   return wrap;
 }
 
@@ -564,7 +596,7 @@ function notesTab(song) {
   return h('div', { class: 'notes-grid' },
     ta('What this song means (in my words)', () => song.notes.meaning, (v) => { song.notes.meaning = v; }, 'What is this song about?'),
     ta('Performance notes', () => song.notes.performance, (v) => { song.notes.performance = v; }, 'Dynamics, breaths, where to push, live arrangement…'),
-    buildSunoPanel(song, { touch: () => touch(song), settings: sunoSettings }));
+    buildSunoPanel(song, { touch: () => touch(song) }));
 }
 
 /* ───────────────────────── History (earlier versions) ───────────────────────── */
