@@ -11,11 +11,12 @@ import { renderChart, closeChordPopover } from './chart.js';
 import { buildSunoPanel } from './sunotab.js';
 import { initRhymePanel, getDict, trackTextarea } from './rhymepanel.js';
 import { renderCount } from './countview.js';
+import { showDataDialog } from './datadialog.js';
 import {
   syncStyle, taggedLyrics, parseTagInput, usedTags, isInstrumentTag, instrumentWarning, LIMITS, fmtCount,
 } from './suno.js';
 
-const APP_VERSION = '0.4.0'; // keep in sync with sw.js
+const APP_VERSION = '0.5.0'; // keep in sync with sw.js
 const PENDING_KEY = 'lyricwriter.pending';
 const LAST_KEY = 'lyricwriter.last';
 const GROUP_KEY = 'lyricwriter.groupBy';
@@ -680,6 +681,27 @@ function showAbout() {
   dlg.showModal();
 }
 
+async function addImported(list) {
+  if (state.currentId) { await flush(); await discardIfBlank(state.currentId); }
+  for (const s of list) { state.songs.set(s.id, s); }
+  await db.putSongs(list);
+  state.showTrash = false;
+  state.currentId = list[0].id;
+  lsSet(LAST_KEY, list[0].id);
+  renderEditor(); renderLibrary();
+}
+
+async function applyMerge(plan) {
+  await flush();
+  for (const s of plan.replace) { const old = state.songs.get(s.id); if (old) { try { await db.addSnapshot(old); } catch { /* history is best-effort */ } } }
+  const list = [...plan.add, ...plan.replace];
+  for (const s of list) state.songs.set(s.id, s);
+  await db.putSongs(list);
+  const c = state.songs.get(state.currentId);
+  if (!c) state.currentId = null;
+  renderEditor(); renderLibrary();
+}
+
 function setupChrome() {
   const saved = lsGet(THEME_KEY);
   applyTheme(THEMES.includes(saved) ? saved : 'dark');
@@ -697,6 +719,7 @@ function setupChrome() {
   $('#scrim').addEventListener('click', closeDrawer);
   $('#btn-new').addEventListener('click', createSong);
   $('#btn-history').addEventListener('click', showHistory);
+  $('#btn-data').addEventListener('click', async () => { await flush(); showDataDialog({ getSongs: () => [...state.songs.values()], current: cur, addSongs: addImported, applyMerge, appVersion: APP_VERSION }); });
   $('#btn-trash').addEventListener('click', () => { state.showTrash = !state.showTrash; renderLibrary(); });
   $('#search').addEventListener('input', (e) => { state.search = e.target.value; renderLibrary(); });
   const gb = $('#group-by');
