@@ -1,5 +1,5 @@
 // Offline cache. Bump VERSION on every release (must match APP_VERSION in js/app.js).
-const VERSION = '0.2.0';
+const VERSION = '0.3.1';
 const CACHE = 'lyricwriter-cache-' + VERSION;
 const ASSETS = [
   './',
