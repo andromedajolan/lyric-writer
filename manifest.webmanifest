@@ -1,7 +1,7 @@
 {
-"name": "Lyric Writer",
-"short_name": "Lyrics",
-"description": "Offline lyric writer with sections, chords and rhymes.",
+"name": "Stilus",
+"short_name": "Stilus",
+"description": "Stilus: offline lyric writer with sections, chords and rhymes.",
 "id": "/lyric-writer/",
 "start_url": "./",
 "scope": "./",
