@@ -287,7 +287,7 @@ function renderEditor() {
   root.replaceChildren();
   const song = cur();
   $('#btn-history').hidden = !song;
-  document.title = song ? `${songTitle(song)} – Lyric Writer` : 'Lyric Writer';
+  document.title = song ? `${songTitle(song)} – Stilus` : 'Stilus';
   if (!song) {
     root.append(h('div', { class: 'empty-state' },
       h('p', {}, state.songs.size ? 'Pick a song from the library, or start a new one.' : 'No songs yet.'),
@@ -300,7 +300,7 @@ function renderEditor() {
 
   const titleIn = h('input', {
     id: 'title-input', class: 'title-input', placeholder: 'Song title', value: song.title, 'aria-label': 'Song title',
-    oninput: (e) => { song.title = e.target.value; document.title = `${songTitle(song)} – Lyric Writer`; touch(song); refreshLibrarySoon(); },
+    oninput: (e) => { song.title = e.target.value; document.title = `${songTitle(song)} – Stilus`; touch(song); refreshLibrarySoon(); },
   });
 
   const bpmIn = h('input', {
@@ -670,7 +670,7 @@ function showAbout() {
     return det;
   };
   const dlg = h('dialog', { class: 'dlg wide' },
-    h('h3', { style: 'margin-top:0' }, 'Lyric Writer v' + APP_VERSION),
+    h('h3', { style: 'margin-top:0' }, 'Stilus v' + APP_VERSION),
     h('p', { class: 'muted small' }, 'Everything stays on this device. No accounts, no AI, no network calls once installed.'),
     h('p', { class: 'small' }, 'Rhymes and syllable counts use the CMU Pronouncing Dictionary (Carnegie Mellon University) and SCOWL word lists (Kevin Atkinson and contributors). Their license notices are reproduced below.'),
     license('CMU Pronouncing Dictionary license', 'licenses/CMUdict-LICENSE.txt'),
@@ -726,7 +726,7 @@ function setupChrome() {
   const savedGroup = lsGet(GROUP_KEY);
   if (['release', 'recent', 'az'].includes(savedGroup)) { state.groupBy = savedGroup; gb.value = savedGroup; }
   gb.addEventListener('change', () => { state.groupBy = gb.value; lsSet(GROUP_KEY, gb.value); renderLibrary(); });
-  $('#library').append(h('div', { class: 'muted small', style: 'padding:6px 12px' }, 'Lyric Writer v' + APP_VERSION + ' · ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); showAbout(); } }, 'About & licenses')));
+  $('#library').append(h('div', { class: 'muted small', style: 'padding:6px 12px' }, 'Stilus v' + APP_VERSION + ' · ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); showAbout(); } }, 'About & licenses')));
   document.addEventListener('lw-about', showAbout);
   rhymes = initRhymePanel({ getSongs: () => state.songs.values(), onClose: () => { rhymes.close(); document.querySelectorAll('.toolbar .tb-group button[title="Open the rhyme finder"]').forEach((b) => b.setAttribute('aria-pressed', 'false')); } });
 

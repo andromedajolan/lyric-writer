@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Lyric Writer</title>
+<title>Stilus</title>
 <meta name="theme-color" content="#141418">
 <meta name="description" content="Offline lyric writer: sections, chords, rhymes.">
 <link rel="manifest" href="manifest.webmanifest">
@@ -20,8 +20,9 @@
 </head>
 <body>
 <header id="topbar">
+  <a id="btn-home" class="btn" href="/" title="Back to Ianua, the Abditum launcher">&#8592; Ianua</a>
   <button id="btn-menu" class="btn icon" aria-label="Toggle song library" title="Songs">☰</button>
-  <div class="brand">Lyric Writer</div>
+  <div class="brand">Stilus</div>
   <div class="spacer"></div>
   <span id="save-state" class="save-state" aria-live="polite">Loading…</span>
   <button id="btn-data" class="btn" title="Import lyrics, export, backup and restore">Import / Export</button>
@@ -55,7 +56,7 @@
 
 <div id="scrim" hidden></div>
 <div id="toasts" aria-live="polite"></div>
-<noscript><p style="padding:2rem">Lyric Writer needs JavaScript.</p></noscript>
+<noscript><p style="padding:2rem">Stilus needs JavaScript.</p></noscript>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

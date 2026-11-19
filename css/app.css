@@ -50,6 +50,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 1px;
 }
+#btn-home { text-decoration: none; display: inline-flex; align-items: center; white-space: nowrap; }
 .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
 .btn.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
 .btn.ghost { background: transparent; }
