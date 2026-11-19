@@ -1,5 +1,5 @@
 // Offline cache. Bump VERSION on every release (must match APP_VERSION in js/app.js).
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const CACHE = 'lyricwriter-cache-' + VERSION;
 const ASSETS = [
   './',
@@ -10,6 +10,10 @@ const ASSETS = [
   'js/model.js',
   'js/db.js',
   'js/dom.js',
+  'js/chords.js',
+  'js/suno.js',
+  'js/chart.js',
+  'js/sunotab.js',
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/icon-maskable-512.png',
