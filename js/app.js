@@ -9,11 +9,13 @@ import {
 } from './chords.js';
 import { renderChart, closeChordPopover } from './chart.js';
 import { buildSunoPanel } from './sunotab.js';
+import { initRhymePanel, getDict, trackTextarea } from './rhymepanel.js';
+import { renderCount } from './countview.js';
 import {
   syncStyle, taggedLyrics, parseTagInput, usedTags, isInstrumentTag, instrumentWarning, LIMITS, fmtCount,
 } from './suno.js';
 
-const APP_VERSION = '0.3.1'; // keep in sync with sw.js
+const APP_VERSION = '0.4.0'; // keep in sync with sw.js
 const PENDING_KEY = 'lyricwriter.pending';
 const LAST_KEY = 'lyricwriter.last';
 const GROUP_KEY = 'lyricwriter.groupBy';
@@ -28,7 +30,7 @@ const state = {
   showTrash: false,
   search: '',
   groupBy: 'release',
-  view: 'edit', // lyrics tab: 'edit' (plain text with [C] brackets) or 'chart' (chips over words)
+  view: 'edit', // lyrics tab: 'edit' (plain text with [C] brackets), 'chart' (chips over words) or 'count' (syllables + rhyme scheme)
 };
 
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -36,6 +38,7 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* quota/p
 const lsDel = (k) => { try { localStorage.removeItem(k); } catch { /* ignore */ } };
 
 const cur = () => state.songs.get(state.currentId) || null;
+let rhymes = null;
 
 /* ───────────────────────── Autosave + crash recovery ─────────────────────────
    Every edit: (1) synchronously mirrors the song to localStorage ("pending"),
@@ -418,12 +421,17 @@ function lyricsTab(song) {
   }, label);
   const viewEdit = viewBtn('edit', 'Edit');
   const viewChart = viewBtn('chart', 'Chords');
+  const viewCount = viewBtn('count', 'Count');
+  const rhymeBtn = h('button', {
+    class: 'btn small seg', 'aria-pressed': String(rhymes?.isOpen() || false), title: 'Open the rhyme finder',
+    onclick: () => { if (rhymes.isOpen()) rhymes.close(); else rhymes.open(); rhymeBtn.setAttribute('aria-pressed', String(rhymes.isOpen())); },
+  }, 'Rhymes');
   const toKey = h('select', {
     'aria-label': 'Transpose to key', title: 'Move the whole song to another key (set the song\u2019s key first)',
     onchange: (e) => { const k = e.target.value; e.target.value = ''; if (k) doTranspose({ toKey: k }); },
   }, h('option', { value: '' }, 'To key…'), KEYS.map((k) => h('option', { value: k }, k)));
   const toolbar = h('div', { class: 'toolbar' },
-    h('div', { class: 'tb-group' }, h('span', { class: 'tb-label' }, 'View'), viewEdit, viewChart),
+    h('div', { class: 'tb-group' }, h('span', { class: 'tb-label' }, 'View'), viewEdit, viewChart, viewCount, rhymeBtn),
     h('div', { class: 'tb-group' }, h('span', { class: 'tb-label' }, 'Transpose'),
       h('button', { class: 'btn small', 'aria-label': 'Down one semitone', title: 'Down one semitone', onclick: () => doTranspose({ steps: -1 }) }, '−1'),
       h('button', { class: 'btn small', 'aria-label': 'Up one semitone', title: 'Up one semitone', onclick: () => doTranspose({ steps: 1 }) }, '+1'),
@@ -432,6 +440,7 @@ function lyricsTab(song) {
   const syncToolbar = () => {
     viewEdit.setAttribute('aria-pressed', String(state.view === 'edit'));
     viewChart.setAttribute('aria-pressed', String(state.view === 'chart'));
+    viewCount.setAttribute('aria-pressed', String(state.view === 'count'));
   };
 
   const updateLabels = () => {
@@ -464,11 +473,18 @@ function lyricsTab(song) {
         onChange: (text) => { sec.lyrics = text; tc(); refreshLibrarySoon(); renderSections(); },
       });
     }
+    if (state.view === 'count') {
+      const box = h('div', { class: 'countwrap' }, h('div', { class: 'muted small', style: 'padding:10px 12px' }, 'Loading dictionary…'));
+      getDict().then((d) => box.replaceChildren(renderCount(sec.lyrics, d, { onWord: (w) => { rhymes.open(w); } })))
+        .catch(() => box.replaceChildren(h('div', { class: 'tag-warn', style: 'padding:10px 12px' }, 'Could not load the dictionary.')));
+      return box;
+    }
     const ta = h('textarea', {
       class: 'lyrics', value: sec.lyrics, placeholder: 'Write lyrics here. Add chords like [C]word', 'aria-label': 'Lyrics',
       oninput: (e) => { sec.lyrics = e.target.value; autosize(e.target); tc(); refreshLibrarySoon(); },
     });
     ta.spellcheck = false;
+    trackTextarea(ta);
     return ta;
   }
 
@@ -645,6 +661,25 @@ function applyTheme(t) {
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#141418');
 }
 
+function showAbout() {
+  const license = (title, url) => {
+    const pre = h('pre', { class: 'license' }, 'Loading…');
+    const det = h('details', {}, h('summary', {}, title), pre);
+    det.addEventListener('toggle', () => { if (det.open && pre.textContent === 'Loading…') fetch(url).then((r) => r.text()).then((t) => { pre.textContent = t; }).catch(() => { pre.textContent = 'Could not load the license text.'; }); });
+    return det;
+  };
+  const dlg = h('dialog', { class: 'dlg wide' },
+    h('h3', { style: 'margin-top:0' }, 'Lyric Writer v' + APP_VERSION),
+    h('p', { class: 'muted small' }, 'Everything stays on this device. No accounts, no AI, no network calls once installed.'),
+    h('p', { class: 'small' }, 'Rhymes and syllable counts use the CMU Pronouncing Dictionary (Carnegie Mellon University) and SCOWL word lists (Kevin Atkinson and contributors). Their license notices are reproduced below.'),
+    license('CMU Pronouncing Dictionary license', 'licenses/CMUdict-LICENSE.txt'),
+    license('SCOWL copyright and license notices', 'licenses/SCOWL-Copyright.txt'),
+    h('div', { class: 'dlg-actions' }, h('button', { class: 'btn primary', onclick: () => dlg.close() }, 'Close')));
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+}
+
 function setupChrome() {
   const saved = lsGet(THEME_KEY);
   applyTheme(THEMES.includes(saved) ? saved : 'dark');
@@ -668,7 +703,9 @@ function setupChrome() {
   const savedGroup = lsGet(GROUP_KEY);
   if (['release', 'recent', 'az'].includes(savedGroup)) { state.groupBy = savedGroup; gb.value = savedGroup; }
   gb.addEventListener('change', () => { state.groupBy = gb.value; lsSet(GROUP_KEY, gb.value); renderLibrary(); });
-  $('#library').append(h('div', { class: 'muted small', style: 'padding:6px 12px' }, 'Lyric Writer v' + APP_VERSION));
+  $('#library').append(h('div', { class: 'muted small', style: 'padding:6px 12px' }, 'Lyric Writer v' + APP_VERSION + ' · ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); showAbout(); } }, 'About & licenses')));
+  document.addEventListener('lw-about', showAbout);
+  rhymes = initRhymePanel({ getSongs: () => state.songs.values(), onClose: () => { rhymes.close(); document.querySelectorAll('.toolbar .tb-group button[title="Open the rhyme finder"]').forEach((b) => b.setAttribute('aria-pressed', 'false')); } });
 
   let installEvt = null;
   window.addEventListener('beforeinstallprompt', (e) => {
