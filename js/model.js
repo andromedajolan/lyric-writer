@@ -29,7 +29,7 @@ export function uid(prefix = 's') {
 }
 
 export function newSection(type = 'Verse', lyrics = '') {
-  return { id: uid('sec'), type, label: '', sunoTag: '', lyrics };
+  return { id: uid('sec'), type, label: '', tags: null, fade: false, lyrics };
 }
 
 export function newSong(overrides = {}) {
@@ -45,7 +45,7 @@ export function newSong(overrides = {}) {
     release: { type: 'none', name: '' },
     sections: [newSection('Verse')],
     notes: { meaning: '', performance: '' },
-    suno: { style: '' },
+    suno: { style: '', exclude: '', weirdness: null, styleInfluence: null, audioInfluence: null, audioUploaded: false },
     created: now,
     updated: now,
     deleted: false,
@@ -74,7 +74,15 @@ export function normalizeSong(raw) {
     meaning: String(s.notes?.meaning ?? ''),
     performance: String(s.notes?.performance ?? ''),
   };
-  s.suno = { style: String(s.suno?.style ?? '') };
+  const su = s.suno || {};
+  s.suno = {
+    style: String(su.style ?? ''),
+    exclude: String(su.exclude ?? ''),
+    weirdness: pct(su.weirdness),
+    styleInfluence: pct(su.styleInfluence),
+    audioInfluence: pct(su.audioInfluence),
+    audioUploaded: !!su.audioUploaded,
+  };
   s.created = Number(s.created) || base.created;
   s.updated = Number(s.updated) || s.created;
   s.deleted = !!s.deleted;
@@ -82,13 +90,30 @@ export function normalizeSong(raw) {
   return s;
 }
 
+const cleanTag = (t) => String(t ?? '').replace(/[\[\]\n]/g, '').trim();
+const HEADER_WORDS = /^(intro|verse|pre-chorus|chorus|post-chorus|bridge|hook|refrain|interlude|instrumental|outro|final chorus)\b/i;
+
+// 0-100 whole number, or null when the slider is unset.
+function pct(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : null;
+}
+
 function normalizeSection(raw) {
   const r = raw || {};
+  let tags = Array.isArray(r.tags) ? r.tags.map(cleanTag).filter(Boolean) : null;
+  // v0.1 stored one free-text "sunoTag"; fold its bracketed tags into the new list (headers dropped).
+  if (tags === null && typeof r.sunoTag === 'string' && r.sunoTag.trim()) {
+    const found = [...r.sunoTag.matchAll(/\[([^\]]+)\]/g)].map((x) => cleanTag(x[1])).filter((t) => t && !HEADER_WORDS.test(t));
+    if (found.length) tags = found;
+  }
   return {
     id: String(r.id || uid('sec')),
     type: SECTION_TYPES.includes(r.type) ? r.type : 'Other',
     label: String(r.label ?? ''),
-    sunoTag: String(r.sunoTag ?? ''),
+    tags,
+    fade: !!r.fade,
     lyrics: String(r.lyrics ?? ''),
   };
 }

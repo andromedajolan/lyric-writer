@@ -54,3 +54,19 @@ export function fmtTime(ms) {
   const d = new Date(ms);
   return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
+
+export async function copyText(text, label = 'Copied') {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = h('textarea', { value: text, style: 'position:fixed;left:-9999px;top:0' });
+    document.body.append(ta);
+    ta.select();
+    let okCopy = false;
+    try { okCopy = document.execCommand('copy'); } catch { /* ignore */ }
+    ta.remove();
+    if (!okCopy) { toast('Could not copy. Select the text and copy it manually.'); return false; }
+  }
+  toast(label, { ms: 2000 });
+  return true;
+}
