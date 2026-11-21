@@ -1,6 +1,6 @@
 import {
   SECTION_TYPES, QUICK_ADD, KEYS, MODES, TIME_SIGS, RELEASE_TYPES,
-  newSong, newSection, normalizeSong, uid, autoLabels, songTitle, keyLine, searchText, groupKey,
+  newSong, newSection, normalizeSong, uid, autoLabels, songTitle, keyLine, searchText, groupKey, validDate,
 } from './model.js';
 import * as db from './db.js';
 import { h, $, toast, confirmDialog, autosize, fmtTime } from './dom.js';
@@ -16,7 +16,7 @@ import {
   syncStyle, taggedLyrics, parseTagInput, usedTags, isInstrumentTag, instrumentWarning, LIMITS, fmtCount,
 } from './suno.js';
 
-const APP_VERSION = '0.5.0'; // keep in sync with sw.js
+const APP_VERSION = '0.5.1'; // keep in sync with sw.js
 const PENDING_KEY = 'lyricwriter.pending';
 const LAST_KEY = 'lyricwriter.last';
 const GROUP_KEY = 'lyricwriter.groupBy';
@@ -31,6 +31,7 @@ const state = {
   showTrash: false,
   search: '',
   groupBy: 'release',
+  finalOnly: false,
   view: 'edit', // lyrics tab: 'edit' (plain text with [C] brackets), 'chart' (chips over words) or 'count' (syllables + rhyme scheme)
 };
 
@@ -122,6 +123,8 @@ window.addEventListener('keydown', (e) => {
 let libTimer = null;
 const refreshLibrarySoon = () => { clearTimeout(libTimer); libTimer = setTimeout(renderLibrary, 150); };
 
+const finalBadge = (date) => h('span', { class: 'final-badge', title: 'Release date ' + date }, 'Final');
+
 function renderLibrary() {
   const list = $('#song-list');
   list.replaceChildren();
@@ -129,8 +132,9 @@ function renderLibrary() {
   const trashCount = all.filter((s) => s.deleted).length;
   $('#btn-trash').textContent = `Trash (${trashCount})`;
   $('#btn-trash').setAttribute('aria-pressed', String(state.showTrash));
+  $('#btn-final').setAttribute('aria-pressed', String(state.finalOnly));
 
-  let songs = all.filter((s) => s.deleted === state.showTrash);
+  let songs = all.filter((s) => s.deleted === state.showTrash && (!state.finalOnly || state.showTrash || s.release.date));
   const terms = state.search.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (terms.length && !state.showTrash) {
     songs = songs.filter((s) => { const t = searchText(s); return terms.every((w) => t.includes(w)); });
@@ -139,7 +143,7 @@ function renderLibrary() {
 
   if (!songs.length) {
     list.append(h('div', { class: 'empty-note' },
-      state.showTrash ? 'Trash is empty.' : terms.length ? 'No songs match.' : 'No songs yet. Hit + New.'));
+      state.showTrash ? 'Trash is empty.' : state.finalOnly ? 'No final songs yet. Set a release date on a song to mark it Final.' : terms.length ? 'No songs match.' : 'No songs yet. Hit + New.'));
     return;
   }
 
@@ -152,7 +156,7 @@ function renderLibrary() {
     : h('button', {
       class: 'song-item' + (s.id === state.currentId ? ' active' : ''),
       onclick: () => openSong(s.id),
-    }, h('div', { class: 't' }, songTitle(s)), h('div', { class: 's' }, keyLine(s) || ' '));
+    }, h('div', { class: 't' }, songTitle(s), s.release.date ? finalBadge(s.release.date) : null), h('div', { class: 's' }, keyLine(s) || ' '));
 
   if (state.showTrash || state.groupBy === 'az') {
     songs.sort(byTitle).forEach((s) => list.append(item(s)));
@@ -331,6 +335,13 @@ function renderEditor() {
     for (const s of state.songs.values()) if (s.release.type === t && s.release.name.trim()) names.add(s.release.name.trim());
     [...names].sort().forEach((n) => relList.append(h('option', { value: n })));
   };
+  const relDate = h('input', {
+    type: 'date', value: song.release.date, 'aria-label': 'Release date',
+    onchange: (e) => { song.release.date = validDate(e.target.value); syncFinal(); touch(song); refreshLibrarySoon(); },
+  });
+  const finalHead = h('span', {});
+  const syncFinal = () => finalHead.replaceChildren(...(song.release.date ? [finalBadge(song.release.date)] : []));
+  syncFinal();
   const relType = h('select', {
     onchange: (e) => { song.release.type = e.target.value; if (!['album', 'pool'].includes(e.target.value)) song.release.name = ''; relName.value = song.release.name; syncRelease(); touch(song); refreshLibrarySoon(); },
   }, RELEASE_TYPES.map((t) => h('option', { value: t, selected: t === song.release.type }, t === 'none' ? 'Not set' : t[0].toUpperCase() + t.slice(1))));
@@ -343,6 +354,7 @@ function renderEditor() {
     field('Time signature', tsIn),
     field('Release', relType),
     relField,
+    field('Release date', relDate),
     tsList, relList);
 
   const tabsEl = h('div', { class: 'tabs', role: 'tablist' });
@@ -357,7 +369,7 @@ function renderEditor() {
   };
 
   root.append(h('div', { class: 'editor-inner' },
-    h('div', { class: 'title-row' }, titleIn,
+    h('div', { class: 'title-row' }, titleIn, finalHead,
       h('button', { class: 'btn', onclick: duplicateSong, title: 'Make a copy of this song' }, 'Duplicate'),
       h('button', { class: 'btn', onclick: trashSong, title: 'Move this song to Trash' }, 'Delete')),
     meta, tabsEl, body));
@@ -720,6 +732,7 @@ function setupChrome() {
   $('#btn-new').addEventListener('click', createSong);
   $('#btn-history').addEventListener('click', showHistory);
   $('#btn-data').addEventListener('click', async () => { await flush(); showDataDialog({ getSongs: () => [...state.songs.values()], current: cur, addSongs: addImported, applyMerge, appVersion: APP_VERSION }); });
+  $('#btn-final').addEventListener('click', () => { state.finalOnly = !state.finalOnly; renderLibrary(); });
   $('#btn-trash').addEventListener('click', () => { state.showTrash = !state.showTrash; renderLibrary(); });
   $('#search').addEventListener('input', (e) => { state.search = e.target.value; renderLibrary(); });
   const gb = $('#group-by');

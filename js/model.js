@@ -42,7 +42,7 @@ export function newSong(overrides = {}) {
     mode: '',
     bpm: null,
     timeSig: '4/4',
-    release: { type: 'none', name: '' },
+    release: { type: 'none', name: '', date: '' },
     sections: [newSection('Verse')],
     notes: { meaning: '', performance: '' },
     suno: { style: '', exclude: '', voice: '', weirdness: null, styleInfluence: null, audioInfluence: null, audioUploaded: false },
@@ -51,6 +51,14 @@ export function newSong(overrides = {}) {
     deleted: false,
     ...overrides,
   };
+}
+
+// Optional release date, YYYY-MM-DD, or '' when unset/invalid.
+export function validDate(v) {
+  const t = String(v ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return '';
+  const d = new Date(t + 'T00:00:00Z');
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t ? t : '';
 }
 
 // Fill in missing fields so older/partial data (and future imports) never crash the UI.
@@ -67,6 +75,7 @@ export function normalizeSong(raw) {
   s.release = {
     type: RELEASE_TYPES.includes(s.release?.type) ? s.release.type : 'none',
     name: String(s.release?.name ?? ''),
+    date: validDate(s.release?.date),
   };
   s.sections = Array.isArray(s.sections) ? s.sections.map(normalizeSection) : [];
   if (!s.sections.length) s.sections = [newSection('Verse')];
